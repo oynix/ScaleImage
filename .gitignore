@@ -110,3 +110,5 @@ remote_config_data
 PyProj/
 
 Assets/DomAssets/**/~$*
+
+!/Releases/*.unitypackage
