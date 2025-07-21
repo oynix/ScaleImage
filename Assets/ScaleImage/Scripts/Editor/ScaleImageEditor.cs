@@ -35,6 +35,7 @@ namespace Editor.Inspector
                     go.AddComponent<ScaleImage>();
                     var rt = go.GetComponent<RectTransform>();
                     rt.SetParent(pg.transform);
+                    rt.localScale = Vector3.one;
                     rt.anchoredPosition = Vector2.zero;
                 }
             }
