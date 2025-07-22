@@ -1,56 +1,101 @@
-using System.Collections.Generic;
+using System;
+using UnityEngine.Pool;
 using UnityEngine.Sprites;
 
 namespace UnityEngine.UI
 {
-    [AddComponentMenu("UI/Scale Image", 11)]
-    public class ScaleImage : Image
+    [Serializable]
+    public class BlendElement
     {
+        public Sprite sprite;
         public ScaleType scaleType = ScaleType.CenterCrop;
         public bool roundCorner = false;
         [Range(0, 0.5f)] public float radiusRatio = 0.25f;
         [Range(1, 20)] public int triangleNum = 6;
+    }
 
-        private Sprite activeSprite => overrideSprite != null ? overrideSprite : sprite;
+    [AddComponentMenu("UI/Blend Image", 11)]
+    public class BlendImage : Image
+    {
+        public BlendElement destImage;
+
+        public BlendElement srcImage;
+
+        [Min(0)] public float padding;
+
+        private Sprite destSprite
+        {
+            get
+            {
+                if (destImage != null && destImage.sprite != null)
+                    return destImage.sprite;
+
+                return null;
+            }
+        }
+
+        private Sprite srcSprite
+        {
+            get
+            {
+                if (srcImage != null && srcImage.sprite != null)
+                    return srcImage.sprite;
+                return null;
+            }
+        }
 
         protected override void OnPopulateMesh(VertexHelper toFill)
         {
-            if (activeSprite == null)
+            // if (activeSprite == null)
+            if (destSprite == null)
             {
                 base.OnPopulateMesh(toFill);
                 return;
             }
 
+            sprite = destSprite;
+            toFill.Clear();
+
+            var v = GetDrawingDimensionsIgnorePadding();
+            if (srcSprite == null)
+            {
+                DrawScaleSprite(destImage, v, toFill, 0);
+                return;
+            }
+
+            var w = v.z - v.x;
+            var h = v.w - v.y;
+            var p = Mathf.Min(Mathf.Min(w / 2, h / 2), padding);
+
+            if (p == 0)
+            {
+                DrawScaleSprite(srcImage, v, toFill, 0);
+                return;
+            }
             // GenerateSimpleSprite(toFill, false);
-            GenerateScaleSprite(toFill);
+            // GenerateScaleSprite(toFill);
+
+            GenerateBlendSprite(toFill, v, p);
         }
 
-        void GenerateSimpleSprite(VertexHelper vh, bool lPreserveAspect)
+        void GenerateBlendSprite(VertexHelper vh, Vector4 v, float p)
         {
-            var v = GetDrawingDimensions(lPreserveAspect);
-            var uv = (activeSprite != null) ? DataUtility.GetOuterUV(activeSprite) : Vector4.zero;
+            DrawScaleSprite(destImage, v, vh, 0);
 
-            var color32 = color;
-            vh.Clear();
-            vh.AddVert(new Vector3(v.x, v.y), color32, new Vector2(uv.x, uv.y));
-            vh.AddVert(new Vector3(v.x, v.w), color32, new Vector2(uv.x, uv.w));
-            vh.AddVert(new Vector3(v.z, v.w), color32, new Vector2(uv.z, uv.w));
-            vh.AddVert(new Vector3(v.z, v.y), color32, new Vector2(uv.z, uv.y));
-
-            vh.AddTriangle(0, 1, 2);
-            vh.AddTriangle(2, 3, 0);
+            v.x += p;
+            v.y += p;
+            v.z -= p;
+            v.w -= p;
+            DrawScaleSprite(srcImage, v, vh, 0);
         }
 
-        void GenerateScaleSprite(VertexHelper vh)
+        void DrawScaleSprite(BlendElement be, Vector4 v, VertexHelper vh, float p)
         {
-            var uv = (activeSprite != null) ? DataUtility.GetOuterUV(activeSprite) : Vector4.zero;
-            var v = GetDrawingDimensionsIgnorePadding(false);
-            var r = rectTransform.rect;
-            var mBoundSize = new Vector2(r.width, r.height);
+            var uv = be.sprite != null ? DataUtility.GetOuterUV(be.sprite) : Vector4.zero;
+            var mBoundSize = new Vector2(v.z - v.x, v.w - v.y);
+            var sSize = be.sprite.rect.size;
 
-            var sSize = activeSprite.rect.size;
-
-            switch (scaleType)
+            switch (be.scaleType)
             {
                 case ScaleType.Center:
                     if (mBoundSize.x > sSize.x)
@@ -220,37 +265,94 @@ namespace UnityEngine.UI
                 }
             }
 
-
-            if (!roundCorner)
+            if (!be.roundCorner)
+            {
+                // if (p > 0)
+                //     DrawPaddingRect(vh, v, uv, p);
+                // else
                 DrawRect(vh, v, uv);
+            }
             else
-                DrawRoundCornerRect(vh, v, uv);
+                DrawRoundCornerRect(vh, v, uv, be);
         }
 
-        private void DrawRect(VertexHelper vh, Vector4 v, Vector4 uv)
+        void DrawRect(VertexHelper vh, Vector4 v, Vector4 uv)
         {
             var color32 = color;
-            vh.Clear();
+            var offset = vh.currentVertCount;
             vh.AddVert(new Vector3(v.x, v.y), color32, new Vector2(uv.x, uv.y));
             vh.AddVert(new Vector3(v.x, v.w), color32, new Vector2(uv.x, uv.w));
             vh.AddVert(new Vector3(v.z, v.w), color32, new Vector2(uv.z, uv.w));
             vh.AddVert(new Vector3(v.z, v.y), color32, new Vector2(uv.z, uv.y));
 
-            vh.AddTriangle(0, 1, 2);
-            vh.AddTriangle(2, 3, 0);
+            vh.AddTriangle(0 + offset, 1 + offset, 2 + offset);
+            vh.AddTriangle(2 + offset, 3 + offset, 0 + offset);
         }
 
-        private void DrawRoundCornerRect(VertexHelper vh, Vector4 v, Vector4 uv)
+        void DrawPaddingRect(VertexHelper vh, Vector4 v, Vector4 uv, float paddingPixels)
+        {
+            var w = v.z - v.x;
+            var h = v.w - v.y;
+
+            var p = paddingPixels;
+
+            var pUV = new Vector2(p / w * (uv.z - uv.x), p / h * (uv.w - uv.y));
+
+            var color32 = color;
+            var offset = vh.currentVertCount;
+            // 0 1
+            vh.AddVert(new Vector3(v.x, v.w), color32,
+                new Vector2(uv.x, uv.w));
+            vh.AddVert(new Vector3(v.x, v.y), color32,
+                new Vector2(uv.x, uv.y));
+            // 2 3 4 5
+            vh.AddVert(new Vector3(v.x + p, v.w), color32,
+                new Vector2(uv.x + pUV.x, uv.w));
+            vh.AddVert(new Vector3(v.x + p, v.w - p), color32,
+                new Vector2(uv.x + pUV.x, uv.w - pUV.y));
+            vh.AddVert(new Vector3(v.x + p, v.y + p), color32,
+                new Vector2(uv.x + pUV.x, uv.y + pUV.y));
+            vh.AddVert(new Vector3(v.x + p, v.y), color32,
+                new Vector2(uv.x + pUV.x, uv.y));
+            // 6 7 8 9
+            vh.AddVert(new Vector3(v.z - p, v.w), color32,
+                new Vector2(uv.z - pUV.x, uv.w));
+            vh.AddVert(new Vector3(v.z - p, v.w - p), color32,
+                new Vector2(uv.z - pUV.x, uv.w - pUV.y));
+            vh.AddVert(new Vector3(v.z - p, v.y + p), color32,
+                new Vector2(uv.z - pUV.x, uv.y + pUV.y));
+            vh.AddVert(new Vector3(v.z - p, v.y), color32,
+                new Vector2(uv.z - pUV.x, uv.y));
+            // 10 11
+            vh.AddVert(new Vector3(v.z, v.w), color32,
+                new Vector2(uv.z, uv.w));
+            vh.AddVert(new Vector3(v.z, v.y), color32,
+                new Vector2(uv.z, uv.y));
+
+            vh.AddTriangle(0 + offset, 1 + offset, 2 + offset);
+            vh.AddTriangle(1 + offset, 2 + offset, 5 + offset);
+
+            vh.AddTriangle(2 + offset, 3 + offset, 6 + offset);
+            vh.AddTriangle(3 + offset, 6 + offset, 7 + offset);
+
+            vh.AddTriangle(4 + offset, 5 + offset, 8 + offset);
+            vh.AddTriangle(9 + offset, 5 + offset, 8 + offset);
+
+            vh.AddTriangle(9 + offset, 10 + offset, 6 + offset);
+            vh.AddTriangle(9 + offset, 10 + offset, 11 + offset);
+        }
+
+        void DrawRoundCornerRect(VertexHelper vh, Vector4 v, Vector4 uv, BlendElement be)
         {
             var color32 = color;
-            vh.Clear();
             // 对radius的值做限制，必须在0-较小的边的1/2的范围内
-            var radius = radiusRatio * Mathf.Min(v.z - v.x, v.w - v.y);
+            var radius = be.radiusRatio * Mathf.Min(v.z - v.x, v.w - v.y);
             if (radius < 0) radius = 0;
             // 计算出uv中对应的半径值坐标轴的半径
             var uvRadiusX = radius / (v.z - v.x) * (uv.z - uv.x);
             var uvRadiusY = radius / (v.w - v.y) * (uv.w - uv.y);
 
+            var offset = vh.currentVertCount;
             // 0，1
             vh.AddVert(new Vector3(v.x, v.w - radius), color32,
                 new Vector2(uv.x, uv.w - uvRadiusY));
@@ -284,19 +386,28 @@ namespace UnityEngine.UI
                 new Vector2(uv.z, uv.y + uvRadiusY));
 
             // 左边的矩形
-            vh.AddTriangle(1, 0, 3);
-            vh.AddTriangle(1, 3, 4);
+            // vh.AddTriangle(1 + offset, 0 + offset, 3 + offset);
+            // vh.AddTriangle(1 + offset, 3 + offset, 4 + offset);
+            AddTriangle(vh, offset, 1, 3, 0);
+            AddTriangle(vh, offset, 1, 3, 4);
             // 中间的矩形
-            vh.AddTriangle(5, 2, 6);
-            vh.AddTriangle(5, 6, 9);
+            // vh.AddTriangle(5 + offset, 2 + offset, 6 + offset);
+            // vh.AddTriangle(5 + offset, 6 + offset, 9 + offset);
+            AddTriangle(vh, offset, 5, 6, 2);
+            AddTriangle(vh, offset, 5, 6, 9);
             // 右边的矩形
-            vh.AddTriangle(8, 7, 10);
-            vh.AddTriangle(8, 10, 11);
+            // vh.AddTriangle(8 + offset, 7 + offset, 10 + offset);
+            // vh.AddTriangle(8 + offset, 10 + offset, 11 + offset);
+            AddTriangle(vh, offset, 8, 7, 10);
+            AddTriangle(vh, offset, 8, 11, 10);
 
             // 开始构造四个角
-            var vCenterList = new List<Vector2>();
-            var uvCenterList = new List<Vector2>();
-            var vCenterVertList = new List<int>();
+            // var vCenterList = new List<Vector2>();
+            var vCenterList = ListPool<Vector2>.Get();
+            // var uvCenterList = new List<Vector2>();
+            var uvCenterList = ListPool<Vector2>.Get();
+            // var vCenterVertList = new List<int>();
+            var vCenterVertList = ListPool<int>.Get();
 
             // 右上角的圆心
             vCenterList.Add(new Vector2(v.z - radius, v.w - radius));
@@ -319,109 +430,54 @@ namespace UnityEngine.UI
             vCenterVertList.Add(8);
 
             //每个三角形的顶角
-            var degreeDelta = Mathf.PI / 2 / triangleNum;
+            var degreeDelta = Mathf.PI / 2 / be.triangleNum;
             //当前的角度
             float curDegree = 0;
 
             for (var i = 0; i < vCenterVertList.Count; i++)
             {
                 var preVertNum = vh.currentVertCount;
-                for (var j = 0; j <= triangleNum; j++)
+                for (var j = 0; j <= be.triangleNum; j++)
                 {
                     var cosA = Mathf.Cos(curDegree);
                     var sinA = Mathf.Sin(curDegree);
-                    Vector3 vPosition = new Vector3(vCenterList[i].x + cosA * radius, vCenterList[i].y + sinA * radius);
-                    Vector3 uvPosition = new Vector2(uvCenterList[i].x + cosA * uvRadiusX,
+                    var vPosition = new Vector3(vCenterList[i].x + cosA * radius, vCenterList[i].y + sinA * radius);
+                    var uvPosition = new Vector2(uvCenterList[i].x + cosA * uvRadiusX,
                         uvCenterList[i].y + sinA * uvRadiusY);
                     vh.AddVert(vPosition, color32, uvPosition);
                     curDegree += degreeDelta;
                 }
 
                 curDegree -= degreeDelta;
-                for (var j = 0; j <= triangleNum - 1; j++)
+                for (var j = 0; j <= be.triangleNum - 1; j++)
                 {
-                    vh.AddTriangle(vCenterVertList[i], preVertNum + j + 1, preVertNum + j);
+                    vh.AddTriangle(offset + vCenterVertList[i], preVertNum + j + 1, preVertNum + j);
                 }
             }
+
+            ListPool<Vector2>.Release(vCenterList);
+            ListPool<Vector2>.Release(uvCenterList);
+            ListPool<int>.Release(vCenterVertList);
         }
 
-        /// Image's dimensions used for drawing. X = left, Y = bottom, Z = right, W = top.
-        private Vector4 GetDrawingDimensions(bool shouldPreserveAspect)
+        void AddTriangle(VertexHelper vh, int offset, int a, int b, int c)
         {
-            var padding = activeSprite == null
-                ? Vector4.zero
-                : DataUtility.GetPadding(activeSprite);
-            var size = activeSprite == null
-                ? Vector2.zero
-                : new Vector2(activeSprite.rect.width, activeSprite.rect.height);
-
-            var r = GetPixelAdjustedRect();
-
-            var spriteW = Mathf.RoundToInt(size.x);
-            var spriteH = Mathf.RoundToInt(size.y);
-
-            var v = new Vector4(
-                padding.x / spriteW,
-                padding.y / spriteH,
-                (spriteW - padding.z) / spriteW,
-                (spriteH - padding.w) / spriteH);
-
-            if (shouldPreserveAspect && size.sqrMagnitude > 0.0f)
-            {
-                PreserveSpriteAspectRatio(ref r, size);
-            }
-
-            v = new Vector4(
-                r.x + r.width * v.x,
-                r.y + r.height * v.y,
-                r.x + r.width * v.z,
-                r.y + r.height * v.w
-            );
-
-            return v;
+            vh.AddTriangle(a + offset, b + offset, c + offset);
         }
 
-        private Vector4 GetDrawingDimensionsIgnorePadding(bool shouldPreserveAspect)
+        private Vector4 GetDrawingDimensionsIgnorePadding()
         {
-            var size = activeSprite == null
-                ? Vector2.zero
-                : new Vector2(activeSprite.rect.width, activeSprite.rect.height);
-
             var r = GetPixelAdjustedRect();
             var v = new Vector4(0, 0, 1, 1);
 
-            if (shouldPreserveAspect && size.sqrMagnitude > 0.0f)
-            {
-                PreserveSpriteAspectRatio(ref r, size);
-            }
-
             v = new Vector4(
-                r.x + r.width * v.x,
-                r.y + r.height * v.y,
+                r.x,
+                r.y,
                 r.x + r.width * v.z,
                 r.y + r.height * v.w
             );
 
             return v;
-        }
-
-        private void PreserveSpriteAspectRatio(ref Rect rect, Vector2 spriteSize)
-        {
-            var spriteRatio = spriteSize.x / spriteSize.y;
-            var rectRatio = rect.width / rect.height;
-
-            if (spriteRatio > rectRatio)
-            {
-                var oldHeight = rect.height;
-                rect.height = rect.width * (1.0f / spriteRatio);
-                rect.y += (oldHeight - rect.height) * rectTransform.pivot.y;
-            }
-            else
-            {
-                var oldWidth = rect.width;
-                rect.width = rect.height * spriteRatio;
-                rect.x += (oldWidth - rect.width) * rectTransform.pivot.x;
-            }
         }
     }
 }

@@ -6,12 +6,12 @@ using UnityEditor.UI;
 namespace UnityEngine.UI
 {
     [CanEditMultipleObjects]
-    [CustomEditor(typeof(ScaleImage))]
-    public class ScaleImageEditor : ImageEditor
+    [CustomEditor(typeof(BlendImage))]
+    public class BlendImageEditor : ImageEditor
     {
         private MonoScript _monoScript;
 
-        [MenuItem("GameObject/UI/Scale Image")]
+        [MenuItem("GameObject/UI/Blend Image")]
         private static void CreateWithMenu()
         {
             var ps = Selection.objects;
@@ -20,8 +20,8 @@ namespace UnityEngine.UI
             {
                 if (p is GameObject pg)
                 {
-                    var go = new GameObject("ScaleImage");
-                    go.AddComponent<ScaleImage>();
+                    var go = new GameObject("BlendImage");
+                    go.AddComponent<BlendImage>();
                     var rt = go.GetComponent<RectTransform>();
                     rt.SetParent(pg.transform);
                     rt.localScale = Vector3.one;
@@ -45,17 +45,67 @@ namespace UnityEngine.UI
             EditorGUILayout.ObjectField("Script", _monoScript, typeof(MonoScript), false);
             EditorGUI.EndDisabledGroup();
 
-            SpriteGUI();
+            // SpriteGUI();
             AppearanceControlsGUI();
             RaycastControlsGUI();
             MaskableControlsGUI();
             NativeSizeButtonGUI();
 
-            ScaleTypeGUI();
+            // ScaleTypeGUI();
+            // BoundSizeGUI();
+            // RoundCornerGUI();
+
+            DestElementGUI();
+            SrcElementGUI();
+
+            PaddingGUI();
+
             BoundSizeGUI();
-            RoundCornerGUI();
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        private void DestElementGUI()
+        {
+            var image = target as BlendImage;
+            if (image == null) return;
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Destination Image (Background)");
+            DrawProperty(GetFieldName(() => image.destImage));
+            
+            // EditorGUI.indentLevel += 1;
+            // var spriteProp = serializedObject.FindProperty("destImage.sprite");
+            // EditorGUILayout.PropertyField(spriteProp);
+            // DrawProperty(GetFieldName(() => image.destImage.scaleType));
+            // DrawProperty(GetFieldName(() => image.destImage.roundCorner));
+            // if (image.destImage.roundCorner)
+            // {
+            //     DrawProperty(GetFieldName(() => image.destImage.radiusRatio));
+            //     DrawProperty(GetFieldName(() => image.destImage.triangleNum));
+            // }
+            //
+            if (GUILayout.Button("print corner"))
+            {
+                Debug.Log($"corner:{image.destImage.roundCorner}");
+            }
+            //
+            // EditorGUI.indentLevel -= 1;
+        }
+
+        private void SrcElementGUI()
+        {
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField("Source Image (Main Content)");
+            var image = target as BlendImage;
+            if (image == null) return;
+            DrawProperty(GetFieldName(() => image.srcImage));
+        }
+
+        private void PaddingGUI()
+        {
+            var image = target as BlendImage;
+            if (image == null) return;
+            DrawProperty(GetFieldName(() => image.padding));
         }
 
         private void BoundSizeGUI()
@@ -67,7 +117,7 @@ namespace UnityEngine.UI
                 {
                     foreach (var t in targets)
                     {
-                        if (t is ScaleImage si)
+                        if (t is BlendImage si)
                         {
                             var rect = si.gameObject.GetComponent<RectTransform>();
                             var p = rect.parent.GetComponent<RectTransform>();
